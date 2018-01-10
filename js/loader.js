@@ -4,8 +4,9 @@ var li_extractor_data = [];
 var current_name;
 var current_company;
 var my_tab_id;
+var number_res;
 
-function get_domain(name, company_name) {
+function get_domain(where, name, company_name) {
     console.log("get_domain", name, company_name);
     var original_company_name = company_name;
     company_name = company_name.replace(" Inc.", "");
@@ -14,34 +15,34 @@ function get_domain(name, company_name) {
     company_name = $.trim(company_name);
     $.ajax({
         type: 'GET',
-        url: "https://autocomplete.clearbit.com/v1/companies/suggest?query="+company_name,
-        success: function(output, status, xhr) {
+        url: "https://autocomplete.clearbit.com/v1/companies/suggest?query=" + company_name,
+        success: function (output, status, xhr) {
 
             console.log("sb3", output);
             //Attempt to get domain for exact match first
-            for(var i=0; i<output.length; i++) {
+            for (var i = 0; i < output.length; i++) {
                 if (output[i]['name'] == original_company_name) {
-                    return scan_for_emails(name, output[i]['domain']);
+                    return scan_for_emails(where, name, output[i]['domain']);
                 }
             }
 
             //Attempt to get domain for near match
-            for(var i=0; i<output.length; i++) {
+            for (var i = 0; i < output.length; i++) {
                 if (output[i]['name'] == company_name) {
-                    return scan_for_emails(name, output[i]['domain']);
+                    return scan_for_emails(where, name, output[i]['domain']);
                 }
             }
 
             //Screw it, let's just get the first result.
-            for(var i=0; i<output.length; i++) {
-                return scan_for_emails(name, output[i]['domain']);
+            for (var i = 0; i < output.length; i++) {
+                return scan_for_emails(where, name, output[i]['domain']);
             }
         },
         cache: false
     });
 }
 
-function scan_for_emails(name, domain) {
+function scan_for_emails(where, name, domain) {
     var n = {
         "first_name": "",
         "first_initial": "",
@@ -61,55 +62,57 @@ function scan_for_emails(name, domain) {
     n['first_initial'] = name_pieces[0][0]
 
     if (name_pieces.length > 1) {
-        n['last_name'] = name_pieces[name_pieces.length-1].replace(".", "")
-        n['last_initial'] = name_pieces[name_pieces.length-1][0]
+        n['last_name'] = name_pieces[name_pieces.length - 1].replace(".", "")
+        n['last_initial'] = name_pieces[name_pieces.length - 1][0]
     }
 
     var emails = [];
-    for (var i=0; i<possibilities.length; i++) {
+    for (var i = 0; i < possibilities.length; i++) {
         var new_e = possibilities[i];
         new_e = new_e.replace("{fn}", n['first_name']);
         new_e = new_e.replace("{ln}", n['last_name']);
         new_e = new_e.replace("{fi}", n['first_initial']);
         new_e = new_e.replace("{li}", n['last_initial']);
-        new_e = new_e + "@"+domain;
+        new_e = new_e + "@" + domain;
         emails.push(new_e.toLowerCase());
     }
     console.log("attempted emails...", emails);
     var ms_delay = 0;
-    for(var i=0; i<emails.length; i++) {
+    for (var i = 0; i < emails.length; i++) {
+
         $.ajax({
             type: 'GET',
-            url: "https://mail.google.com/mail/gxlu?email="+emails[i]+"&tab_id="+my_tab_id,
-            success: function(output, status, xhr) {
-                //results checked in background.js
+            url: "https://mail.google.com/mail/gxlu?email=" + emails[i] + "&tab_id=" + my_tab_id,
+
+            success: function (output, status, xhr) {
+
             },
             cache: false
         });
 
         $.ajax({
             type: 'GET',
-            url: "https://api.github.com/search/commits?q=committer-email:"+emails[i],
-            beforeSend: function(xhr){
+            url: "https://api.github.com/search/commits?q=committer-email:" + emails[i],
+            beforeSend: function (xhr) {
                 xhr.setRequestHeader('Accept', 'application/vnd.github.cloak-preview');
             },
             current_email: emails[i],
-            success: function(output, status, xhr) {
+            success: function (output, status, xhr) {
                 if (output['total_count'] && output['total_count'] > 0) {
-                    found_email(this.current_email, "github");
+                    found_email(where, this.current_email, "github");
                 }
             },
             cache: false
         });
 
-        chrome.runtime.sendMessage({"dns_check": emails[i]});
+        chrome.runtime.sendMessage({ "dns_check": emails[i] });
 
         ajax_after_milliseconds({
-            url:"https://haveibeenpwned.com/api/v2/breachedaccount/"+emails[i],
-            type:'GET',
+            url: "https://haveibeenpwned.com/api/v2/breachedaccount/" + emails[i],
+            type: 'GET',
             current_email: emails[i],
-            success: function(data){
-                found_email(this.current_email, "HAVEIBEENPWNED");
+            success: function (data) {
+                found_email(where, this.current_email, "HAVEIBEENPWNED");
             },
             cache: false
         }, ms_delay);
@@ -120,7 +123,7 @@ function scan_for_emails(name, domain) {
 }
 
 function ajax_after_milliseconds(ajaxconfig, timeperiod) {
-    setTimeout(function(){
+    setTimeout(function () {
         $.ajax(ajaxconfig);
     }, timeperiod);
 }
@@ -128,7 +131,7 @@ function ajax_after_milliseconds(ajaxconfig, timeperiod) {
 function scan_for_profile() {
     var name;
     var company_name;
-
+    // each profile content search
     if ($('.pv-top-card-section__name').length > 0 && $('.pv-top-card-section__company').length > 0) {
         //normal account logged in linkedin profile
         name = $.trim($('.pv-top-card-section__name').text());
@@ -157,6 +160,7 @@ function scan_for_profile() {
         }
     }
 
+
     if (name && company_name) {
         //We are on a profile page
         if (name != current_name || company_name != current_company) {
@@ -165,64 +169,118 @@ function scan_for_profile() {
             current_company = company_name;
             $('.liext-emaildata').remove();
             console.log("get_profile_info", name, company_name);
-            get_domain(name, company_name);
+            get_domain(null, name, company_name);
         }
     }
 
-    setTimeout(function(){
+    setTimeout(function () {
         //LI will swap profiles without reloading the page, poll for changes.
         scan_for_profile();
     }, 700);
 }
+function scan_for_profile_insearch() {
+    var name;
+    var company_name;
+    // searching page profiles
+    var wraper_result = $('.search-result__info');
+
+    if (number_res != wraper_result.text()) {
+        number_res = wraper_result.text();
+        $.each(wraper_result, function (item, value) {
+            name = $.trim($(value).find('.actor-name').text());
+            company_name = $(value).find('.subline-level-1').text().split(' at ');
+            if (company_name.length > 1) {
+                company_name = $.trim(company_name[1])
+            }
+            else {
+                company_name = "";
+            }
+            console.log(company_name);
+
+            if (name && company_name) {
+                //We are on a profile page         
+                $(value).find('.emaildatr').remove();
+                console.log("get_profile_info", name, company_name);
+                get_domain(value, name, company_name);
+
+            }
+        });
+    }
+    /* if ($('.actor-name').length > 0 && $('.subline-level-1').length > 0) {
+        name = $.trim($('.actor-name').text());
+        company_name = $('.subline-level-1').text().split(' at ');
+        if (company_name.length > 1) {
+            company_name = $.trim(company_name[1])
+        }
+        else {
+            company_name = "";
+        }
+    } */
+    console.log("sume");
+    setTimeout(function () {
+        //LI will swap profiles without reloading the page, poll for changes.
+        scan_for_profile_insearch();
+    }, 1700);
+}
 
 chrome.runtime.onMessage.addListener(
-  function(request, sender, sendResponse) {
-    console.log("message received...........", request);
-    if (request.found_email) {
-        found_email(request.found_email, "gmail");
-    }
-    else if (request.found_email_dns) {
-        found_email(request.found_email_dns, "DNS");
-    }
-    else if (request.tab_id) {
-        my_tab_id = request.tab_id;
-        scan_for_profile();
-    }
-});
+    function (request, sender, sendResponse) {
+        console.log("message received...........", request);
+        if (request.found_email) {
+            console.log(request.backdetail);
+            found_email(null, request.found_email, "gmail");
+        }
+        else if (request.found_email_dns) {
+            found_email(null, request.found_email_dns, "DNS");
+        }
+        else if (request.tab_id) {
+            my_tab_id = request.tab_id;
 
-function found_email(email, source) {
+            if ($('.search-results__cluster-title').length > 0) {
+                scan_for_profile_insearch();
+            }
+            else
+                scan_for_profile();
+        }
+    });
+
+function found_email(where, email, source) {
     console.log("****Found Email", email, source);
-
+    console.log(where);
     var source_text = source;
     if (source == 'github') {
-        source_text = "<a target='_blank' href='https://api.github.com/search/commits?q=committer-email:"+email+"'>github</a>";
+        source_text = "<a target='_blank' href='https://api.github.com/search/commits?q=committer-email:" + email + "'>github</a>";
     }
     if (source == 'HAVEIBEENPWNED') {
-        source_text = "<a target='_blank' href='https://haveibeenpwned.com/api/v2/breachedaccount/"+email+"'>HIBP</a>";
+        source_text = "<a target='_blank' href='https://haveibeenpwned.com/api/v2/breachedaccount/" + email + "'>HIBP</a>";
     }
     if (source == 'DNS') {
-        source_text = "<a target='_blank' href='http://viewdns.info/reversewhois/?q="+email+"'>DNS</a>";
+        source_text = "<a target='_blank' href='http://viewdns.info/reversewhois/?q=" + email + "'>DNS</a>";
     }
 
     if ($('.pv-top-card-section__headline').length > 0) {
-        $('.pv-top-card-section__headline').after('<h2 class="liext-emaildata Sans-19px-black-85%" title="Source: '+source+'">'+email+' ['+source_text+']</h2>');
+        $('.pv-top-card-section__headline').after('<h2 class="liext-emaildata Sans-19px-black-85%" title="Source: ' + source + '">' + email + ' [' + source_text + ']</h2>');
     }
     else if ($('.profile-overview-content').find('.title').length > 0) {
-        $('.profile-overview-content').find('.title').after('<p class="liext-emaildata headline email" data-section="headline" title="Source: '+source+'">'+email+' ['+source_text+']</p>');
+        $('.profile-overview-content').find('.title').after('<p class="liext-emaildata headline email" data-section="headline" title="Source: ' + source + '">' + email + ' [' + source_text + ']</p>');
     }
     else if ($('.liext-emails').length > 0) {
         var htmlz = '';
-        htmlz += '<ul class="liext-emaildata liext-emails"><li>'+email+' ['+source_text+']</li></ul>';
+        htmlz += '<ul class="liext-emaildata liext-emails"><li>' + email + ' [' + source_text + ']</li></ul>';
         $('.liext-emails').append(htmlz);
     }
     else if ($('.profile-info').find('.title').length > 0) {
         var htmlz = '<h4 class="sub-headline liext-emaildata">Emails</h4>';
-        htmlz += '<ul class="liext-emaildata liext-emails"><li>'+email+' ['+source_text+']</li></ul>';
+        htmlz += '<ul class="liext-emaildata liext-emails"><li>' + email + ' [' + source_text + ']</li></ul>';
         $('.profile-info').find('.title').parent().after(htmlz);
+    }
+    if ($('.search-results__cluster-title').length > 0) {
+        if (where != null)
+            $(where).append('<p class=" Sans-15px-black-85% search-result__truncate emaildatr">' + email + ' [' + source_text + ']</p >');
     }
 
 }
 
-$( document ).ready(function() {
-    chrome.runtime.sendMessage({"my_tab_id": "what is it?"});
+$(document).ready(function () {
+    chrome.runtime.sendMessage({ "my_tab_id": "what is it?" });
 });
