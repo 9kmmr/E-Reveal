@@ -6,6 +6,8 @@ function send_to_tab(data, tab_id) {
 }
 
 chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
+  
+    
     if ("dns_check" in message) {
         //Gotta do this here, because it's http and linkedin is https
         $.ajax({
@@ -19,7 +21,7 @@ chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
                 //Note, if this api goes down, swap to http://www.whoismind.com/email/myemail@gmail.com.html
                 domain_results = parseInt(domain_results);
                 if (domain_results > 0) {
-                    send_to_tab({found_email_dns: this.current_email}, this.tab_id);
+                    send_to_tab({found_email_dns: this.current_email,dat:message['dat_index']}, this.tab_id);
                 }
             },
             cache: false
@@ -68,8 +70,9 @@ chrome.webRequest.onHeadersReceived.addListener(
                     parser.href = details.url;
                     email = parser.search.split('email=')[1].split('&')[0]
                     tab_id = parser.search.split('tab_id=')[1].split('&')[0]
+                    dat_index = parser.search.split('dat_index=')[1].split('&')[0]
 
-                    send_to_tab({found_email: email}, tab_id);
+                    send_to_tab({found_email: email,dat: dat_index}, tab_id);
                 }
             });
         }
